@@ -1,0 +1,155 @@
+# image piper
+
+```elixir
+Mix.install(
+  [
+    {:nx, "~> 0.7"},
+    {:nx_image, "~> 0.1"},
+    {:scholar, "~> 0.3"},
+    {:exla, "~> 0.7"},
+    {:kino, "~> 0.13"},
+    {:image, "~> 0.51"},
+    {:bumblebee, "~> 0.1"}
+  ],
+  config: [
+    nx: [
+      default_backend: EXLA.Backend,
+      default_defn_options: [compiler: EXLA]
+    ]
+  ]
+)
+
+previous_inspect = Inspect.Opts.default_inspect_fun()
+
+Inspect.Opts.default_inspect_fun(fn term, opts ->
+  previous_inspect.(term, %Inspect.Opts{opts | charlists: :as_lists})
+end)
+```
+
+## Section
+
+```elixir
+repo_id = "CompVis/stable-diffusion-v1-4"
+opts = [params_variant: "fp16", type: :bf16, backend: EXLA.Backend]
+
+{:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/clip-vit-large-patch14"})
+{:ok, clip} = Bumblebee.load_model({:hf, repo_id, subdir: "text_encoder"}, opts)
+{:ok, unet} = Bumblebee.load_model({:hf, repo_id, subdir: "unet"}, opts)
+{:ok, vae} = Bumblebee.load_model({:hf, repo_id, subdir: "vae"}, [architecture: :decoder] ++ opts)
+{:ok, scheduler} = Bumblebee.load_scheduler({:hf, repo_id, subdir: "scheduler"})
+{:ok, featurizer} = Bumblebee.load_featurizer({:hf, repo_id, subdir: "feature_extractor"})
+{:ok, safety_checker} = Bumblebee.load_model({:hf, repo_id, subdir: "safety_checker"}, opts)
+```
+
+```elixir
+serving =
+  Bumblebee.Diffusion.StableDiffusion.text_to_image(clip, unet, vae, tokenizer, scheduler,
+    num_steps: 20,
+    num_images_per_prompt: 1,
+    safety_checker: safety_checker,
+    safety_checker_featurizer: featurizer,
+    compile: [batch_size: 1, sequence_length: 60],
+    # Option 1
+    defn_options: [compiler: EXLA]
+    # Option 2 (reduces GPU usage, but runs noticeably slower)
+    # Also remove `backend: EXLA.Backend` from the loading options above
+    # defn_options: [compiler: EXLA, lazy_transfers: :always]
+  )
+
+Kino.start_child({Nx.Serving, name: StableDiffusion, serving: serving})
+```
+
+```elixir
+prompt_input =
+  Kino.Input.text("Prompt", default: "portrait, anime, face only")
+
+negative_prompt_input = Kino.Input.text("Negative Prompt", default: "body")
+
+Kino.Layout.grid([prompt_input, negative_prompt_input])
+```
+
+```elixir
+prompt = Kino.Input.read(prompt_input)
+negative_prompt = Kino.Input.read(negative_prompt_input)
+
+output =
+  Nx.Serving.batched_run(StableDiffusion, %{prompt: prompt, negative_prompt: negative_prompt})
+
+for result <- output.results do
+  Kino.Image.new(result.image)
+end
+|> Kino.Layout.grid(columns: 2)
+```
+
+```elixir
+image_input = Kino.Input.image("An image to be uploaded")
+```
+
+```elixir
+{:ok, image} =
+  image_input
+  |> Kino.Input.read()
+  |> Image.from_kino!()
+  |> Image.resize(0.5)
+
+Image.shape(image)
+```
+
+```elixir
+{:ok, thumb} =
+  image_input
+  |> Kino.Input.read()
+  |> Image.from_kino!()
+  |> Image.thumbnail(128)
+```
+
+```elixir
+Enum.map([3, 4, 5], fn colors ->
+  {:ok, grey} = Image.to_colorspace(thumb, :bw)
+
+  grey
+  |> Image.reduce_colors!(colors: colors)
+  |> Image.to_kino()
+end)
+|> Kino.Layout.grid(columns: 3)
+```
+
+```elixir
+sizes =
+  Enum.map([24, 32, 48, 64], fn size ->
+    thumb
+    |> Image.thumbnail!(size)
+  end)
+
+Enum.map(sizes, fn img ->
+  Enum.map([2, 3, 4, 5], fn colors ->
+    {:ok, grey} = Image.to_colorspace(img, :bw)
+
+    grey
+    |> Image.reduce_colors!(colors: colors)
+    |> Image.to_kino()
+  end)
+  |> Kino.Layout.grid(columns: 3)
+end)
+|> Kino.Layout.grid(columns: 4)
+```
+
+```elixir
+reduced_colors =
+  Enum.map([2, 3, 4, 5], fn colors ->
+    {:ok, grey} = Image.to_colorspace(thumb, :bw)
+
+    grey
+    |> Image.reduce_colors!(colors: colors)
+  end)
+
+Enum.map(reduced_colors, fn img ->
+  Enum.map([24, 32, 48, 64], fn size ->
+    img
+    |> Image.thumbnail!(size)
+    |> Image.to_kino()
+  end)
+  |> Kino.Layout.grid(columns: 1)
+end)
+|> Kino.Layout.grid(columns: 3)
+```
