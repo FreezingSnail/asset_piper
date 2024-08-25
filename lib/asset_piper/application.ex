@@ -10,7 +10,7 @@ defmodule AssetPiper.Application do
     children = [
       {AssetPiper.FileServer, []},
       {AssetPiper.BroadcastProducer, []},
-      {AssetPiper.ImageConverter, []}
+      {AssetPiper.ConverterSupervisor, []}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

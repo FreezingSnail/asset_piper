@@ -22,12 +22,8 @@ defmodule AssetPiper.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:rustler, "~> 0.34.0"},
       {:gen_stage, "~> 1.0.0"},
-      {:nx, "~> 0.7"},
-      {:nx_image, "~> 0.1"},
-      {:scholar, "~> 0.3"},
-      {:exla, "~> 0.7"},
-      {:kino, "~> 0.13"},
       {:image, "~> 0.51"}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
